@@ -485,53 +485,68 @@ when defined(emscripten):
         ctx.callback = callback
         GC_ref(ctx)
         discard EM_ASM_INT("""
+        var oReq = (window.XMLHttpRequest)?new XMLHttpRequest():new ActiveXObject('Microsoft.XMLHTTP');
         var url = UTF8ToString($1);
-        console.log("start loadimagefromurl " + url);
-        var i = new Image();
-        i.crossOrigin = '';
-        i.onload = function () {
-            console.log("on loadimagefromurl " + url);
-            try {
-                _nimxImagePrepareTexture($0, i.width, i.height);
-                GLctx.pixelStorei(GLctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-                function nextPowerOfTwo(v) {
-                    v--;
-                    v|=v>>1;
-                    v|=v>>2;
-                    v|=v>>4;
-                    v|=v>>8;
-                    v|=v>>16;
-                    return ++v;
-                }
-                var texWidth = nextPowerOfTwo(i.width);
-                var texHeight = nextPowerOfTwo(i.height);
-                if (texWidth != i.width || texHeight != i.height) {
-                    var canvas = window.__nimx_aux_2d_canvas;
-                    if (canvas === undefined) {
-                        canvas = document.createElement('canvas');
-                        window.__nimx_aux_2d_canvas = canvas;
+        oReq.responseType = "blob";
+        oReq.addEventListener("load", function(){
+            console.log("oreq loaded: " + url);
+            var objUrl = window.URL.createObjectURL(oReq.response);
+            var i = new Image();
+            i.crossOrigin = '';
+            i.onload = function () {
+                console.log("image loaded: " + url);
+                window.URL.revokeObjectURL(objUrl);
+                try {
+                    _nimxImagePrepareTexture($0, i.width, i.height);
+                    GLctx.pixelStorei(GLctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+                    function nextPowerOfTwo(v) {
+                        v--;
+                        v|=v>>1;
+                        v|=v>>2;
+                        v|=v>>4;
+                        v|=v>>8;
+                        v|=v>>16;
+                        return ++v;
                     }
-                    canvas.width = texWidth;
-                    canvas.height = texHeight;
-                    var ctx2d = canvas.getContext('2d');
-                    ctx2d.globalCompositeOperation = "copy";
-                    ctx2d.drawImage(i, 0, 0);
-                    GLctx.texImage2D(GLctx.TEXTURE_2D, 0, GLctx.RGBA, GLctx.RGBA, GLctx.UNSIGNED_BYTE, canvas);
+                    var texWidth = nextPowerOfTwo(i.width);
+                    var texHeight = nextPowerOfTwo(i.height);
+                    if (texWidth != i.width || texHeight != i.height) {
+                        var canvas = window.__nimx_aux_2d_canvas;
+                        if (canvas === undefined) {
+                            canvas = document.createElement('canvas');
+                            window.__nimx_aux_2d_canvas = canvas;
+                        }
+                        canvas.width = texWidth;
+                        canvas.height = texHeight;
+                        var ctx2d = canvas.getContext('2d');
+                        ctx2d.globalCompositeOperation = "copy";
+                        ctx2d.drawImage(i, 0, 0);
+                        GLctx.texImage2D(GLctx.TEXTURE_2D, 0, GLctx.RGBA, GLctx.RGBA, GLctx.UNSIGNED_BYTE, canvas);
+                    }
+                    else {
+                        GLctx.texImage2D(GLctx.TEXTURE_2D, 0, GLctx.RGBA, GLctx.RGBA, GLctx.UNSIGNED_BYTE, i);
+                    }
+                    console.log("handler loadimagefromurl " + url);
+                    _nimxImageLoaded($0);
                 }
-                else {
-                    GLctx.texImage2D(GLctx.TEXTURE_2D, 0, GLctx.RGBA, GLctx.RGBA, GLctx.UNSIGNED_BYTE, i);
+                catch(e) {
+                    _nimem_e(e); // This function is defined in `jsbind.emscripten`
                 }
-                console.log("handler loadimagefromurl " + url);
-                _nimxImageLoaded($0);
-            }
-            catch(e) {
-                _nimem_e(e); // This function is defined in `jsbind.emscripten`
-            }
-        };
-        i.onerror = function() {
+            };
+            i.onerror = function() {
+                console.log("image failed: " + url);
+                _nimxImageLoadError($0);
+            };
+            i.src = objUrl;
+        });
+        oReq.addEventListener("error", function(e){
+            console.log("oreq failed: " + url);
             _nimxImageLoadError($0);
-        };
-        i.src = url;
+        });
+        oReq.open("GET", url);
+        oReq.send();
+
+
         """, cast[pointer](ctx), cstring(ctx.path))
 
 registerResourcePreloader(["png", "jpg", "jpeg", "gif", "tif", "tiff", "tga", "pvr"]) do(name: string, callback: proc(i: SelfContainedImage)):
@@ -552,7 +567,7 @@ registerResourcePreloader(["png", "jpg", "jpeg", "gif", "tif", "tiff", "tga", "p
             im.src = window.URL.createObjectURL(`r`);
             """.}
 
-        loadJSResourceAsync(name, "blob", nil, nil, handler)
+        loadJSUrlAsync(path, "blob", nil, nil, handler)
     elif defined(emscripten):
         nimxImageLoadFromURL(pathForResource(name), name, callback)
     elif asyncResourceLoad:

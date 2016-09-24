@@ -180,7 +180,7 @@ type ResourceLoadingError* = object
 
 when defined(js) or defined(emscripten):
     import jsbind
-    proc loadJSResourceAsync*(resourceName: string, resourceType: cstring, onProgress: proc(p: float), onError: proc(e: ResourceLoadingError), onComplete: proc(result: JSObj)) =
+    proc loadJSUrlAsync*(url: string, resourceType: jsstring, onProgress: proc(p: float), onError: proc(e: ResourceLoadingError), onComplete: proc(result: JSObj)) =
         let oReq = newXMLHTTPRequest()
         var reqListener: proc()
         var errorListener: proc()
@@ -189,7 +189,7 @@ when defined(js) or defined(emscripten):
             jsUnref(reqListener)
             jsUnref(errorListener)
             handleJSExceptions:
-                logi "XMLHTTPRequest complete: ", resourceName
+                logi "XMLHTTPRequest complete: ", url
                 onComplete(oReq.response)
         errorListener = proc() =
             jsUnref(reqListener)
@@ -198,12 +198,12 @@ when defined(js) or defined(emscripten):
                 var err: ResourceLoadingError
                 var statusText = oReq.statusText
                 if statusText.isNil: statusText = "(nil)"
-                err.description = "XMLHTTPRequest error(" & resourceName & "): " & $oReq.status & ": " & $statusText
+                err.description = "XMLHTTPRequest error(" & url & "): " & $oReq.status & ": " & $statusText
                 logi "XMLHTTPRequest failure: ", err.description
                 onError(err)
         readyStateChangeListener = proc() =
             handleJSExceptions:
-                logi "XMLHTTPRequest readystatechange ", resourceName, ": ", oReq.readyState
+                logi "XMLHTTPRequest readystatechange ", url, ": ", oReq.readyState
         jsRef(reqListener)
         jsRef(errorListener)
         jsRef(readyStateChangeListener)
@@ -212,10 +212,13 @@ when defined(js) or defined(emscripten):
         oReq.addEventListener("load", reqListener)
         oReq.addEventListener("error", errorListener)
         oReq.addEventListener("readystatechange", readyStateChangeListener)
-        logi "XMLHTTPRequest Loading js resource: ", pathForResource(resourceName)
+        logi "XMLHTTPRequest Loading js resource: ", url
 
-        oReq.open("GET", pathForResource(resourceName))
+        oReq.open("GET", url)
         oReq.send()
+
+    proc loadJSResourceAsync*(resourceName: string, resourceType: jsstring, onProgress: proc(p: float), onError: proc(e: ResourceLoadingError), onComplete: proc(result: JSObj)) =
+        loadJSUrlAsync(pathForResource(resourceName), resourceType, onProgress, onError, onComplete)
 
 when defined(emscripten):
     import jsbind.emscripten
