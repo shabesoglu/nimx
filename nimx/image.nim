@@ -54,14 +54,18 @@ method setFilePath*(i: SelfContainedImage, path: string) =
 method filePath*(i: Image): string {.base.} = discard
 method filePath*(i: SelfContainedImage): string = i.mFilePath
 
+var numberOfImages* = 0
+
 when not defined(js):
     proc finalizeImage(i: SelfContainedImage) =
+        dec numberOfImages
         if i.texture != invalidTexture:
             glDeleteTextures(1, addr i.texture)
         if i.framebuffer != invalidFrameBuffer:
             glDeleteFramebuffers(1, addr i.framebuffer)
 
 proc newSelfContainedImage(): SelfContainedImage {.inline.} =
+    inc numberOfImages
     when defined(js):
         result.new()
     else:
@@ -474,10 +478,13 @@ when defined(emscripten):
         ctx.callback = callback
         GC_ref(ctx)
         discard EM_ASM_INT("""
+        var url = UTF8ToString($1);
+        console.log("start loadimagefromurl " + url);
         var i = new Image();
         i.crossOrigin = '';
-        i.src = UTF8ToString($1);
+        i.src = url;
         i.onload = function () {
+            console.log("on loadimagefromurl " + url);
             try {
                 _nimxImagePrepareTexture($0, i.width, i.height);
                 GLctx.pixelStorei(GLctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
@@ -493,7 +500,11 @@ when defined(emscripten):
                 var texWidth = nextPowerOfTwo(i.width);
                 var texHeight = nextPowerOfTwo(i.height);
                 if (texWidth != i.width || texHeight != i.height) {
-                    var canvas = document.createElement('canvas');
+                    var canvas = window.__nimx_aux_2d_canvas;
+                    if (canvas === undefined) {
+                        canvas = document.createElement('canvas');
+                        window.__nimx_aux_2d_canvas = canvas;
+                    }
                     canvas.width = texWidth;
                     canvas.height = texHeight;
                     var ctx2d = canvas.getContext('2d');
@@ -504,6 +515,7 @@ when defined(emscripten):
                 else {
                     GLctx.texImage2D(GLctx.TEXTURE_2D, 0, GLctx.RGBA, GLctx.RGBA, GLctx.UNSIGNED_BYTE, i);
                 }
+                console.log("handler loadimagefromurl " + url);
                 _nimxImageLoaded($0);
             }
             catch(e) {
@@ -519,7 +531,7 @@ registerResourcePreloader(["png", "jpg", "jpeg", "gif", "tif", "tiff", "tga", "p
             var onImLoad = proc (im: ref RootObj) =
                 handleJSExceptions:
                     var w, h: Coord
-                    {.emit: "`w` = `im`.width; `h` = `im`.height;".}
+                    {.emit: "`w` = `im`.width; `h` = `im`.height; window.URL.revokeObjectURL(`im`.src);".}
                     let image = imageWithSize(newSize(w, h))
                     {.emit: "`image`.__image = `im`;".}
                     image.setFilePath(path)

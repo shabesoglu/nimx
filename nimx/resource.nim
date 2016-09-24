@@ -184,10 +184,12 @@ when defined(js) or defined(emscripten):
         let oReq = newXMLHTTPRequest()
         var reqListener: proc()
         var errorListener: proc()
+        var readyStateChangeListener: proc()
         reqListener = proc() =
             jsUnref(reqListener)
             jsUnref(errorListener)
             handleJSExceptions:
+                logi "XMLHTTPRequest complete: ", resourceName
                 onComplete(oReq.response)
         errorListener = proc() =
             jsUnref(reqListener)
@@ -199,12 +201,19 @@ when defined(js) or defined(emscripten):
                 err.description = "XMLHTTPRequest error(" & resourceName & "): " & $oReq.status & ": " & $statusText
                 logi "XMLHTTPRequest failure: ", err.description
                 onError(err)
+        readyStateChangeListener = proc() =
+            handleJSExceptions:
+                logi "XMLHTTPRequest readystatechange ", resourceName, ": ", oReq.readyState
         jsRef(reqListener)
         jsRef(errorListener)
+        jsRef(readyStateChangeListener)
 
         oReq.responseType = resourceType
         oReq.addEventListener("load", reqListener)
         oReq.addEventListener("error", errorListener)
+        oReq.addEventListener("readystatechange", readyStateChangeListener)
+        logi "XMLHTTPRequest Loading js resource: ", pathForResource(resourceName)
+
         oReq.open("GET", pathForResource(resourceName))
         oReq.send()
 
@@ -220,6 +229,7 @@ proc loadResourceAsync*(resourceName: string, handler: proc(s: Stream)) =
         loadJSResourceAsync(resourceName, "arraybuffer", nil, nil, reqListener)
     elif defined(emscripten):
         let path = pathForResource(resourceName)
+        logi "Loading resource: ", path
         emscripten_async_wget_data(path)
         do(data: pointer, sz: cint):
             handleJSExceptions:
