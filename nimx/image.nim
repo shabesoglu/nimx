@@ -470,6 +470,13 @@ when defined(emscripten):
             ctx.image.setFilePath(ctx.path)
             ctx.callback(ctx.image)
 
+    proc nimxImageLoadError(c: pointer) {.EMSCRIPTEN_KEEPALIVE.} =
+        handleJSExceptions:
+            let ctx = cast[ImageLoadingCtx](c)
+            GC_unref(ctx)
+            logi "Error loading image: ", ctx.path
+            ctx.callback(nil)
+
     proc nimxImageLoadFromURL*(url: string, name: string, callback: proc(i: SelfContainedImage)) =
         var ctx: ImageLoadingCtx
         ctx.new()
@@ -482,7 +489,6 @@ when defined(emscripten):
         console.log("start loadimagefromurl " + url);
         var i = new Image();
         i.crossOrigin = '';
-        i.src = url;
         i.onload = function () {
             console.log("on loadimagefromurl " + url);
             try {
@@ -521,7 +527,11 @@ when defined(emscripten):
             catch(e) {
                 _nimem_e(e); // This function is defined in `jsbind.emscripten`
             }
-        }
+        };
+        i.onerror = function() {
+            _nimxImageLoadError($0);
+        };
+        i.src = url;
         """, cast[pointer](ctx), cstring(ctx.path))
 
 registerResourcePreloader(["png", "jpg", "jpeg", "gif", "tif", "tiff", "tga", "pvr"]) do(name: string, callback: proc(i: SelfContainedImage)):
